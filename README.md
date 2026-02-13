@@ -8,7 +8,7 @@ A compact Lights Out search project featuring classic uninformed and informed se
 - Standalone HTML visualizer with clickable grid, board string input, and step playback
 
 ## Files
-- `lights_out_search.py`: CLI runner and search implementations
+- `LightsOut-Search.py`: CLI runner and search implementations
 - `LightsOut-Visualizer.html`: Browser-based visualizer and solver
 
 ## Requirements
