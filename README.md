@@ -10,7 +10,6 @@ A compact Lights Out search project featuring classic uninformed and informed se
 ## Files
 - `lights_out_search.py`: CLI runner and search implementations
 - `LightsOut-Visualizer.html`: Browser-based visualizer and solver
-- `LOS_Claude.py`: Legacy or experimental script (unchanged)
 
 ## Requirements
 - Python 3.8+
@@ -37,7 +36,7 @@ Board formats accepted:
 - Flattened digits: `101110011`
 
 ## HTML Visualizer
-Open `lights_out_visualizer.html` in your browser.
+Open `LightsOut-Visualizer.html` in your browser.
 
 How to use:
 - Click cells to toggle lights
