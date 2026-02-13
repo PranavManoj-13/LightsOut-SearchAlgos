@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lights Out Search Visualizer</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --on: #f59e0b;
+      --off: #334155;
+      --accent: #22d3ee;
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 10% 0%, #1f2937 0%, #0b1220 55%, #05080f 100%);
+      color: var(--text);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .app {
+      width: min(980px, 96vw);
+      background: rgba(17, 24, 39, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 20px 70px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(8px);
+    }
+    h1 { margin: 0 0 12px; font-size: 1.2rem; letter-spacing: 0.02em; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+    label { font-size: 13px; color: var(--muted); }
+    select, button, input {
+      background: #1e293b;
+      color: var(--text);
+      border: 1px solid #475569;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    .stats { color: var(--muted); font-size: 14px; }
+    .board {
+      margin-top: 10px;
+      display: grid;
+      gap: 8px;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(15, 23, 42, 0.75);
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .cell {
+      width: 84px;
+      height: 84px;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+    }
+    .cell.on {
+      background: var(--on);
+      box-shadow: 0 0 22px rgba(245, 158, 11, 0.6);
+      transform: translateY(-2px);
+    }
+    .cell.off {
+      background: var(--off);
+    }
+    .cell.editable { cursor: pointer; }
+    .action { margin-top: 10px; font-size: 14px; color: #cbd5e1; }
+    .error { color: var(--danger); font-size: 13px; }
+    @media (max-width: 640px) {
+      .cell { width: 60px; height: 60px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>Lights Out Search Visualizer</h1>
+    <div class="row">
+      <label for="algo">Algorithm</label>
+      <select id="algo"></select>
+      <button id="solve">Solve</button>
+      <button id="random">Random</button>
+      <button id="clear">Clear</button>
+    </div>
+    <div class="row">
+      <label for="boardInput">Board</label>
+      <input id="boardInput" type="text" placeholder="101/110/011 or 101110011" size="24" />
+      <button id="apply">Apply</button>
+      <span class="error" id="error"></span>
+    </div>
+    <div class="row">
+      <button id="prev">Prev</button>
+      <button id="play">Play</button>
+      <button id="next">Next</button>
+      <button id="reset">Reset</button>
+      <label for="speed">Speed (ms)</label>
+      <input id="speed" type="number" min="30" value="300" />
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="stats" id="step"></div>
+    <div class="board" id="board"></div>
+    <div class="action" id="action"></div>
+  </div>
+  <script>
+    const SIZE = 3;
+    const ALGORITHMS = ["BFS", "DFS", "UCS", "Greedy Best-First", "A*"];
+
+    const algoSelect = document.getElementById('algo');
+    const boardEl = document.getElementById('board');
+    const statsEl = document.getElementById('stats');
+    const stepEl = document.getElementById('step');
+    const actionEl = document.getElementById('action');
+    const speedEl = document.getElementById('speed');
+    const playBtn = document.getElementById('play');
+    const errorEl = document.getElementById('error');
+    const boardInput = document.getElementById('boardInput');
+
+    ALGORITHMS.forEach(name => {
+      const op = document.createElement('option');
+      op.value = name;
+      op.textContent = name;
+      algoSelect.appendChild(op);
+    });
+
+    let initialBoard = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    let result = null;
+    let states = [cloneBoard(initialBoard)];
+    let stepIndex = 0;
+    let timer = null;
+
+    function cloneBoard(board) {
+      return board.map(row => row.slice());
+    }
+
+    function encode(board) {
+      return board.flat().join('');
+    }
+
+    function decode(str) {
+      const cells = str.split('').map(c => Number(c));
+      const board = [];
+      for (let r = 0; r < SIZE; r += 1) {
+        board.push(cells.slice(r * SIZE, (r + 1) * SIZE));
+      }
+      return board;
+    }
+
+    function applyAction(board, action) {
+      const [r, c] = action;
+      const grid = cloneBoard(board);
+      const targets = [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
+      targets.forEach(([rr, cc]) => {
+        if (rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE) {
+          grid[rr][cc] = grid[rr][cc] ^ 1;
+        }
+      });
+      return grid;
+    }
+
+    function isGoal(board) {
+      return board.every(row => row.every(cell => cell === 0));
+    }
+
+    function neighbors(board) {
+      const actions = [];
+      for (let r = 0; r < SIZE; r += 1) {
+        for (let c = 0; c < SIZE; c += 1) {
+          actions.push([r, c]);
+        }
+      }
+      return actions.map(action => ({ action, next: applyAction(board, action), cost: 1 }));
+    }
+
+    function reconstruct(parent, goalKey) {
+      const actions = [];
+      let cur = goalKey;
+      while (true) {
+        const node = parent.get(cur);
+        if (!node || node.prev === null) break;
+        actions.push(node.action);
+        cur = node.prev;
+      }
+      actions.reverse();
+      return actions;
+    }
+
+    function hCountLit(board) {
+      return board.reduce((sum, row) => sum + row.reduce((s, v) => s + v, 0), 0);
+    }
+
+    function bfs(start) {
+      const startKey = encode(start);
+      if (isGoal(start)) return packResult(true, [], 0, 1, 0);
+      const queue = [start];
+      const parent = new Map([[startKey, { prev: null, action: null }]]);
+      const visited = new Set([startKey]);
+      let expanded = 0;
+      let maxFrontier = 1;
+
+      while (queue.length) {
+        const state = queue.shift();
+        expanded += 1;
+        for (const { action, next, cost } of neighbors(state)) {
+          const key = encode(next);
+          if (visited.has(key)) continue;
+          visited.add(key);
+          parent.set(key, { prev: encode(state), action });
+          if (isGoal(next)) {
+            const actions = reconstruct(parent, key);
+            return packResult(true, actions, expanded, maxFrontier, actions.length * cost);
+          }
+          queue.push(next);
+        }
+        maxFrontier = Math.max(maxFrontier, queue.length);
+      }
+      return packResult(false, [], expanded, maxFrontier, 0);
+    }
+
+    function dfs(start) {
+      const startKey = encode(start);
+      if (isGoal(start)) return packResult(true, [], 0, 1, 0);
+      const stack = [start];
+      const parent = new Map([[startKey, { prev: null, action: null }]]);
+      const visited = new Set();
+      let expanded = 0;
+      let maxFrontier = 1;
+
+      while (stack.length) {
+        const state = stack.pop();
+        const key = encode(state);
+        if (visited.has(key)) continue;
+        visited.add(key);
+        expanded += 1;
+
+        if (isGoal(state)) {
+          const actions = reconstruct(parent, key);
+          return packResult(true, actions, expanded, maxFrontier, actions.length);
+        }
+
+        const neigh = neighbors(state).reverse();
+        for (const { action, next } of neigh) {
+          const nkey = encode(next);
+          if (visited.has(nkey) || parent.has(nkey)) continue;
+          parent.set(nkey, { prev: key, action });
+          stack.push(next);
+        }
+        maxFrontier = Math.max(maxFrontier, stack.length);
+      }
+      return packResult(false, [], expanded, maxFrontier, 0);
+    }
+
+    function ucs(start) {
+      const startKey = encode(start);
+      if (isGoal(start)) return packResult(true, [], 0, 1, 0);
+      const pq = [{ g: 0, tie: 0, state: start }];
+      const parent = new Map([[startKey, { prev: null, action: null }]]);
+      const best = new Map([[startKey, 0]]);
+      let expanded = 0;
+      let maxFrontier = 1;
+      let tie = 1;
+
+      while (pq.length) {
+        pq.sort((a, b) => a.g - b.g || a.tie - b.tie);
+        const node = pq.shift();
+        const key = encode(node.state);
+        if (node.g > best.get(key)) continue;
+        expanded += 1;
+
+        if (isGoal(node.state)) {
+          const actions = reconstruct(parent, key);
+          return packResult(true, actions, expanded, maxFrontier, node.g);
+        }
+
+        for (const { action, next, cost } of neighbors(node.state)) {
+          const nkey = encode(next);
+          const newG = node.g + cost;
+          if (newG < (best.get(nkey) ?? Infinity)) {
+            best.set(nkey, newG);
+            parent.set(nkey, { prev: key, action });
+            pq.push({ g: newG, tie, state: next });
+            tie += 1;
+          }
+        }
+        maxFrontier = Math.max(maxFrontier, pq.length);
+      }
+      return packResult(false, [], expanded, maxFrontier, 0);
+    }
+
+    function greedy(start) {
+      const startKey = encode(start);
+      if (isGoal(start)) return packResult(true, [], 0, 1, 0);
+      const pq = [{ h: hCountLit(start), tie: 0, state: start }];
+      const parent = new Map([[startKey, { prev: null, action: null }]]);
+      const visited = new Set();
+      const depth = new Map([[startKey, 0]]);
+      let expanded = 0;
+      let maxFrontier = 1;
+      let tie = 1;
+
+      while (pq.length) {
+        pq.sort((a, b) => a.h - b.h || a.tie - b.tie);
+        const node = pq.shift();
+        const key = encode(node.state);
+        if (visited.has(key)) continue;
+        visited.add(key);
+        expanded += 1;
+
+        if (isGoal(node.state)) {
+          const actions = reconstruct(parent, key);
+          return packResult(true, actions, expanded, maxFrontier, depth.get(key) ?? 0);
+        }
+
+        for (const { action, next } of neighbors(node.state)) {
+          const nkey = encode(next);
+          if (visited.has(nkey)) continue;
+          if (!parent.has(nkey)) {
+            parent.set(nkey, { prev: key, action });
+            depth.set(nkey, (depth.get(key) ?? 0) + 1);
+            pq.push({ h: hCountLit(next), tie, state: next });
+            tie += 1;
+          }
+        }
+        maxFrontier = Math.max(maxFrontier, pq.length);
+      }
+      return packResult(false, [], expanded, maxFrontier, 0);
+    }
+
+    function aStar(start) {
+      const startKey = encode(start);
+      if (isGoal(start)) return packResult(true, [], 0, 1, 0);
+      const pq = [{ f: hCountLit(start), tie: 0, state: start }];
+      const parent = new Map([[startKey, { prev: null, action: null }]]);
+      const best = new Map([[startKey, 0]]);
+      let expanded = 0;
+      let maxFrontier = 1;
+      let tie = 1;
+
+      while (pq.length) {
+        pq.sort((a, b) => a.f - b.f || a.tie - b.tie);
+        const node = pq.shift();
+        const key = encode(node.state);
+        const g = best.get(key);
+        if (g === undefined) continue;
+
+        if (isGoal(node.state)) {
+          const actions = reconstruct(parent, key);
+          return packResult(true, actions, expanded, maxFrontier, g);
+        }
+
+        expanded += 1;
+        for (const { action, next, cost } of neighbors(node.state)) {
+          const nkey = encode(next);
+          const newG = g + cost;
+          if (newG < (best.get(nkey) ?? Infinity)) {
+            best.set(nkey, newG);
+            parent.set(nkey, { prev: key, action });
+            const f = newG + hCountLit(next);
+            pq.push({ f, tie, state: next });
+            tie += 1;
+          }
+        }
+        maxFrontier = Math.max(maxFrontier, pq.length);
+      }
+      return packResult(false, [], expanded, maxFrontier, 0);
+    }
+
+    function packResult(found, actions, expanded, frontier, pathCost) {
+      return {
+        found,
+        actions,
+        states_expanded: expanded,
+        max_frontier_size: frontier,
+        path_cost: pathCost
+      };
+    }
+
+    function buildStates(start, actions) {
+      const statesList = [cloneBoard(start)];
+      let cur = cloneBoard(start);
+      actions.forEach(action => {
+        cur = applyAction(cur, action);
+        statesList.push(cur);
+      });
+      return statesList;
+    }
+
+    function solve() {
+      errorEl.textContent = '';
+      stop();
+      const algo = algoSelect.value;
+      const start = cloneBoard(initialBoard);
+      let res;
+      if (algo === "BFS") res = bfs(start);
+      else if (algo === "DFS") res = dfs(start);
+      else if (algo === "UCS") res = ucs(start);
+      else if (algo === "Greedy Best-First") res = greedy(start);
+      else res = aStar(start);
+
+      result = res;
+      states = buildStates(start, result.actions);
+      stepIndex = 0;
+      draw();
+    }
+
+    function draw(editable = false) {
+      const state = states[Math.max(0, Math.min(stepIndex, states.length - 1))];
+      boardEl.innerHTML = '';
+      boardEl.style.gridTemplateColumns = `repeat(${SIZE}, max-content)`;
+      state.forEach((row, r) => {
+        row.forEach((cell, c) => {
+          const div = document.createElement('div');
+          div.className = `cell ${cell === 1 ? 'on' : 'off'}${editable ? ' editable' : ''}`;
+          if (editable) {
+            div.addEventListener('click', () => {
+              initialBoard[r][c] = initialBoard[r][c] ^ 1;
+              states = [cloneBoard(initialBoard)];
+              stepIndex = 0;
+              result = null;
+              draw(true);
+            });
+          }
+          boardEl.appendChild(div);
+        });
+      });
+
+      if (!result) {
+        statsEl.textContent = 'Ready. Click cells or apply a board string, then Solve.';
+        stepEl.textContent = 'Step 0/0';
+        actionEl.textContent = 'Action: Start state';
+        return;
+      }
+
+      statsEl.textContent =
+        `Found: ${result.found} | Cost: ${result.path_cost} | ` +
+        `Expanded: ${result.states_expanded} | Frontier: ${result.max_frontier_size}`;
+      stepEl.textContent = `Step ${stepIndex}/${states.length - 1}`;
+      if (stepIndex === 0) {
+        actionEl.textContent = 'Action: Start state';
+      } else {
+        const [r, c] = result.actions[stepIndex - 1];
+        actionEl.textContent = `Action: press (${r}, ${c})`;
+      }
+    }
+
+    function stop() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      playBtn.textContent = 'Play';
+    }
+
+    function parseBoardInput() {
+      const raw = boardInput.value.trim().replace(/\s/g, '');
+      if (!raw) throw new Error('Enter a board string.');
+      let board;
+      if (raw.includes('/')) {
+        const rows = raw.split('/');
+        if (rows.length !== SIZE || rows.some(r => r.length !== SIZE)) {
+          throw new Error(`Board must be ${SIZE}x${SIZE}.`);
+        }
+        board = rows.map(row => row.split('').map(c => Number(c)));
+      } else {
+        if (raw.length !== SIZE * SIZE) {
+          throw new Error(`Board must have ${SIZE * SIZE} digits.`);
+        }
+        board = [];
+        for (let r = 0; r < SIZE; r += 1) {
+          board.push(raw.slice(r * SIZE, (r + 1) * SIZE).split('').map(c => Number(c)));
+        }
+      }
+      board.forEach(row => row.forEach(cell => {
+        if (cell !== 0 && cell !== 1) throw new Error('Board can only contain 0 or 1.');
+      }));
+      return board;
+    }
+
+    document.getElementById('apply').addEventListener('click', () => {
+      try {
+        initialBoard = parseBoardInput();
+        states = [cloneBoard(initialBoard)];
+        stepIndex = 0;
+        result = null;
+        errorEl.textContent = '';
+        draw(true);
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById('solve').addEventListener('click', solve);
+
+    document.getElementById('random').addEventListener('click', () => {
+      initialBoard = Array.from({ length: SIZE }, () => Array.from({ length: SIZE }, () => (Math.random() > 0.5 ? 1 : 0)));
+      states = [cloneBoard(initialBoard)];
+      stepIndex = 0;
+      result = null;
+      draw(true);
+    });
+
+    document.getElementById('clear').addEventListener('click', () => {
+      initialBoard = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+      states = [cloneBoard(initialBoard)];
+      stepIndex = 0;
+      result = null;
+      draw(true);
+    });
+
+    document.getElementById('prev').addEventListener('click', () => {
+      stop();
+      stepIndex = Math.max(0, stepIndex - 1);
+      draw();
+    });
+    document.getElementById('next').addEventListener('click', () => {
+      stop();
+      stepIndex = Math.min(states.length - 1, stepIndex + 1);
+      draw();
+    });
+    document.getElementById('reset').addEventListener('click', () => {
+      stop();
+      stepIndex = 0;
+      draw();
+    });
+    playBtn.addEventListener('click', () => {
+      if (timer) {
+        stop();
+        return;
+      }
+      playBtn.textContent = 'Pause';
+      timer = setInterval(() => {
+        if (stepIndex >= states.length - 1) {
+          stop();
+          return;
+        }
+        stepIndex += 1;
+        draw();
+      }, Math.max(30, Number(speedEl.value) || 300));
+    });
+
+    algoSelect.addEventListener('change', () => {
+      stop();
+      stepIndex = 0;
+      draw(result === null);
+    });
+
+    draw(true);
+  </script>
+</body>
+</html>
