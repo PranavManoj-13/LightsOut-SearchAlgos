@@ -1,6 +1,6 @@
 # Lights Out Search
 
-A compact Lights Out search project featuring classic uninformed and informed search algorithms, plus a standalone HTML visualizer with interactive input.
+A compact Lights Out search project featuring classic uninformed and informed search algorithms, and a standalone HTML visualizer with interactive input.
 
 ## Features
 - Algorithms: BFS, DFS, UCS, Greedy Best-First, A*
@@ -18,17 +18,17 @@ A compact Lights Out search project featuring classic uninformed and informed se
 ## CLI Usage
 ### Run all 512 boards and show consolidated metrics
 ```bash
-python3 lights_out_search.py --all-boards
+python3 LightsOut-Search.py --all-boards
 ```
 
 ### Solve a specific board
 ```bash
-python3 lights_out_search.py --board 101/110/011
+python3 LightsOut-Search.py --board 101/110/011
 ```
 
 ### Prompt for board input
 ```bash
-python3 lights_out_search.py --prompt-board
+python3 LightsOut-Search.py --prompt-board
 ```
 
 Board formats accepted:
